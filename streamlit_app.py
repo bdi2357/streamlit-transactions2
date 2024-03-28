@@ -5,277 +5,108 @@ import sqlite3
 import streamlit as st
 import altair as alt
 import pandas as pd
+import streamlit as st
+import pandas as pd
+import re
+from io import StringIO
+import matplotlib.pyplot as plt
 
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='Inventory tracker',
-    page_icon=':shopping_bags:', # This is an emoji shortcode. Could be a URL too.
-)
+st.title("Transaction analysis")
+uploaded_file = st.file_uploader("Upload a CSV file for analysis", type=['csv'])
+
+if uploaded_file is not None:
+    # Read and decode the uploaded file content
+    content = uploaded_file.getvalue().decode('utf-8')
+
+    # Find the start of the actual data, skipping metadata
+    header_row_index = None
+    lines = content.split('\n')
+    for i, line in enumerate(lines):
+        if line.startswith('Date,'):
+            header_row_index = i
+            break
+
+    if header_row_index is not None:
+        # Skip metadata lines and read the CSV data into a DataFrame
+        content_io = StringIO(content)
+        df = pd.read_csv(content_io, skiprows=header_row_index)
+
+        # Clean the 'Narrative' and 'Running Balance' columns from additional formatting
+        df['Narrative'] = df['Narrative'].apply(lambda x: re.sub(r'^="|"$', '', x))
+        df['Running Balance'] = df['Running Balance'].apply(lambda x: re.sub(r'^="|"$', '', x)).astype(float)
+
+        # Display the cleaned DataFrame
+        st.write(df.head())
+        st.write(df.columns)
+        df = df.rename(columns = {k : "Debit"  for k in df.columns if k.lower().find("debit") > -1 })
+        df['Amount'] = df['Debit'].fillna(0.0) + df['Credit'].fillna(0.0)
+        daily_balances = df.groupby('Date')['Amount'].sum().sort_index()
+
+        # Compute the running total to simulate the cash balance over time
+        cumulative_balance = daily_balances.cumsum()
+
+        # Convert the cumulative balance to units of 1K USD for visualization
+        cumulative_balance_in_thousands = cumulative_balance / 1000
+
+        # Plotting the cash balance over time in units of 1K USD
+        plt.figure(figsize=(14, 7))
+        cumulative_balance_in_thousands.plot(kind='line', marker='o', linestyle='-', color='blue')
+        plt.title('Cash Balance Over Time (in units of 1K USD)')
+        plt.xlabel('Date')
+        plt.ylabel('Cumulative Cash Balance (1K USD)')
+        plt.grid(True)
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        st.pyplot(plt.gcf())
+        categories = {
+            'Payments': ['payment', 'payroll'],
+            'Debit': ['debit'],
+            'Credit': ['credit'],
+            'Check': ['check', 'cheque'],
+            'Internal Transfers': ['internal tfr'],
+            'Domestic Wires': ['wire-out dom'],
+            'International Wires': ['wire-out intl'],
+            'Specific Invoices': ['invoice']
+        }
 
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
-
-def connect_db():
-    '''Connects to the sqlite database.'''
-
-    DB_FILENAME = Path(__file__).parent/'inventory.db'
-    db_already_exists = DB_FILENAME.exists()
-
-    conn = sqlite3.connect(DB_FILENAME)
-    db_was_just_created = not db_already_exists
-
-    return conn, db_was_just_created
+        # Categorization function
+        def categorize_transaction(detail):
+            for category, keywords in categories.items():
+                for keyword in keywords:
+                    if keyword in detail.lower():
+                        return category
+            return 'Other'  # Default category if no keyword matches
 
 
-def initialize_data(conn):
-    '''Initializes the inventory table with some data.'''
-    cursor = conn.cursor()
-
-    cursor.execute(
-        '''
-        CREATE TABLE IF NOT EXISTS inventory (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_name TEXT,
-            price REAL,
-            units_sold INTEGER,
-            units_left INTEGER,
-            cost_price REAL,
-            reorder_point INTEGER,
-            description TEXT
-        )
-        '''
-    )
-
-    cursor.execute(
-        '''
-        INSERT INTO inventory
-            (item_name, price, units_sold, units_left, cost_price, reorder_point, description)
-        VALUES
-            -- Beverages
-            ('Bottled Water (500ml)', 1.50, 115, 15, 0.80, 16, 'Hydrating bottled water'),
-            ('Soda (355ml)', 2.00, 93, 8, 1.20, 10, 'Carbonated soft drink'),
-            ('Energy Drink (250ml)', 2.50, 12, 18, 1.50, 8, 'High-caffeine energy drink'),
-            ('Coffee (hot, large)', 2.75, 11, 14, 1.80, 5, 'Freshly brewed hot coffee'),
-            ('Juice (200ml)', 2.25, 11, 9, 1.30, 5, 'Fruit juice blend'),
-
-            -- Snacks
-            ('Potato Chips (small)', 2.00, 34, 16, 1.00, 10, 'Salted and crispy potato chips'),
-            ('Candy Bar', 1.50, 6, 19, 0.80, 15, 'Chocolate and candy bar'),
-            ('Granola Bar', 2.25, 3, 12, 1.30, 8, 'Healthy and nutritious granola bar'),
-            ('Cookies (pack of 6)', 2.50, 8, 8, 1.50, 5, 'Soft and chewy cookies'),
-            ('Fruit Snack Pack', 1.75, 5, 10, 1.00, 8, 'Assortment of dried fruits and nuts'),
-
-            -- Personal Care
-            ('Toothpaste', 3.50, 1, 9, 2.00, 5, 'Minty toothpaste for oral hygiene'),
-            ('Hand Sanitizer (small)', 2.00, 2, 13, 1.20, 8, 'Small sanitizer bottle for on-the-go'),
-            ('Pain Relievers (pack)', 5.00, 1, 5, 3.00, 3, 'Over-the-counter pain relief medication'),
-            ('Bandages (box)', 3.00, 0, 10, 2.00, 5, 'Box of adhesive bandages for minor cuts'),
-            ('Sunscreen (small)', 5.50, 6, 5, 3.50, 3, 'Small bottle of sunscreen for sun protection'),
-
-            -- Household
-            ('Batteries (AA, pack of 4)', 4.00, 1, 5, 2.50, 3, 'Pack of 4 AA batteries'),
-            ('Light Bulbs (LED, 2-pack)', 6.00, 3, 3, 4.00, 2, 'Energy-efficient LED light bulbs'),
-            ('Trash Bags (small, 10-pack)', 3.00, 5, 10, 2.00, 5, 'Small trash bags for everyday use'),
-            ('Paper Towels (single roll)', 2.50, 3, 8, 1.50, 5, 'Single roll of paper towels'),
-            ('Multi-Surface Cleaner', 4.50, 2, 5, 3.00, 3, 'All-purpose cleaning spray'),
-
-            -- Others
-            ('Lottery Tickets', 2.00, 17, 20, 1.50, 10, 'Assorted lottery tickets'),
-            ('Newspaper', 1.50, 22, 20, 1.00, 5, 'Daily newspaper')
-        '''
-    )
-    conn.commit()
+        df['Category'] = df['Narrative'].apply(categorize_transaction)
 
 
-def load_data(conn):
-    '''Loads the inventory data from the database.'''
-    cursor = conn.cursor()
+        # Convert 'Date' to datetime and ensure 'Amount' is numeric
+        expenses = df[df['Amount'] < 0]
+        expenses_df = expenses.copy()
+        expenses_df['Date'] = pd.to_datetime(expenses_df['Date'])
+        expenses_df['Date'] = pd.to_datetime(expenses_df['Date'])
+        expenses_df['Amount'] = pd.to_numeric(expenses_df['Amount'])
 
-    try:
-        cursor.execute('SELECT * FROM inventory')
-        data = cursor.fetchall()
-    except:
-        return None
+        # Filter out income (assuming income has positive amounts, expenses have negative)
+        expenses_only_df = expenses_df[expenses_df['Amount'] < 0].copy()
 
-    df = pd.DataFrame(data,
-        columns=[
-            'id',
-            'item_name',
-            'price',
-            'units_sold',
-            'units_left',
-            'cost_price',
-            'reorder_point',
-            'description',
-        ])
+        # Convert expenses to positive values for visualization
+        expenses_only_df['Amount'] = expenses_only_df['Amount'].abs()
+        print(set(expenses_only_df['Category']))
+        # Aggregate expenses by category for a specific day
+        # Selecting an example day - replace this with a day you're interested in
+        # example_day = expenses_only_df['Date'].dt.date.iloc[0]
+        # daily_expenses = expenses_only_df[expenses_only_df['Date'].dt.date == example_day]
+        exp_grouped = expenses_only_df.groupby('Category')['Amount'].sum()
 
-    return df
+        # Plotting daily expenses
+        plt.figure(figsize=(8, 8))
+        exp_grouped.plot(kind='pie', autopct='%1.1f%%', title=f'Expenses Distribution by Category')
+        plt.ylabel('')  # to hide the 'Amount' label
+        st.pyplot(plt.gcf())
 
-
-def update_data(conn, df, changes):
-    '''Updates the inventory data in the database.'''
-    cursor = conn.cursor()
-
-    if changes['edited_rows']:
-        deltas = st.session_state.inventory_table['edited_rows']
-        rows = []
-
-        for i, delta in deltas.items():
-            row_dict = df.iloc[i].to_dict()
-            row_dict.update(delta)
-            rows.append(row_dict)
-
-        cursor.executemany(
-            '''
-            UPDATE inventory
-            SET
-                item_name = :item_name,
-                price = :price,
-                units_sold = :units_sold,
-                units_left = :units_left,
-                cost_price = :cost_price,
-                reorder_point = :reorder_point,
-                description = :description
-            WHERE id = :id
-            ''',
-            rows,
-        )
-
-    if changes['added_rows']:
-        cursor.executemany(
-            '''
-            INSERT INTO inventory
-                (id, item_name, price, units_sold, units_left, cost_price, reorder_point, description)
-            VALUES
-                (:id, :item_name, :price, :units_sold, :units_left, :cost_price, :reorder_point, :description)
-            ''',
-            (defaultdict(lambda: None, row) for row in changes['added_rows']),
-        )
-
-    if changes['deleted_rows']:
-        cursor.executemany(
-            'DELETE FROM inventory WHERE id = :id',
-            ({'id': int(df.loc[i, 'id'])} for i in changes['deleted_rows'])
-        )
-
-    conn.commit()
-
-
-# -----------------------------------------------------------------------------
-# Draw the actual page, starting with the inventory table.
-
-# Set the title that appears at the top of the page.
-'''
-# :shopping_bags: Inventory tracker
-
-**Welcome to Alice's Corner Store's intentory tracker!**
-This page reads and writes directly from/to our inventory database.
-'''
-
-st.info('''
-    Use the table below to add, remove, and edit items.
-    And don't forget to commit your changes when you're done.
-    ''')
-
-# Connect to database and create table if needed
-conn, db_was_just_created = connect_db()
-
-# Initialize data.
-if db_was_just_created:
-    initialize_data(conn)
-    st.toast('Database initialized with some sample data.')
-
-# Load data from database
-df = load_data(conn)
-
-# Display data with editable table
-edited_df = st.data_editor(
-    df,
-    disabled=['id'], # Don't allow editing the 'id' column.
-    num_rows='dynamic', # Allow appending/deleting rows.
-    column_config={
-        # Show dollar sign before price columns.
-        "price": st.column_config.NumberColumn(format="$%.2f"),
-        "cost_price": st.column_config.NumberColumn(format="$%.2f"),
-    },
-    key='inventory_table')
-
-has_uncommitted_changes = any(len(v) for v in st.session_state.inventory_table.values())
-
-st.button(
-    'Commit changes',
-    type='primary',
-    disabled=not has_uncommitted_changes,
-    # Update data in database
-    on_click=update_data,
-    args=(conn, df, st.session_state.inventory_table))
-
-
-# -----------------------------------------------------------------------------
-# Now some cool charts
-
-# Add some space
-''
-''
-''
-
-st.subheader('Units left', divider='red')
-
-need_to_reorder = df[df['units_left'] < df['reorder_point']].loc[:, 'item_name']
-
-if len(need_to_reorder) > 0:
-    items = '\n'.join(f'* {name}' for name in need_to_reorder)
-
-    st.error(f"We're running dangerously low on the items below:\n {items}")
-
-''
-''
-
-st.altair_chart(
-    # Layer 1: Bar chart.
-    alt.Chart(df)
-        .mark_bar(
-            orient='horizontal',
-        )
-        .encode(
-            x='units_left',
-            y='item_name',
-        )
-    # Layer 2: Chart showing the reorder point.
-    + alt.Chart(df)
-        .mark_point(
-            shape='diamond',
-            filled=True,
-            size=50,
-            color='salmon',
-            opacity=1,
-        )
-        .encode(
-            x='reorder_point',
-            y='item_name',
-        )
-    ,
-    use_container_width=True)
-
-st.caption('NOTE: The :diamonds: location shows the reorder point.')
-
-''
-''
-''
-
-# -----------------------------------------------------------------------------
-
-st.subheader('Best sellers', divider='orange')
-
-''
-''
-
-st.altair_chart(alt.Chart(df)
-    .mark_bar(orient='horizontal')
-    .encode(
-        x='units_sold',
-        y=alt.Y('item_name').sort('-x'),
-    ),
-    use_container_width=True)
+    else:
+        st.write("Header row could not be automatically determined.")
