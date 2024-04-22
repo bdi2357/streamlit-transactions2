@@ -4,3 +4,4 @@ matplotlib
 OpenAi
 langchain
 langchain_experimental
+tabulate
