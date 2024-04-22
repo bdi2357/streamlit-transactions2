@@ -1,6 +1,6 @@
 streamlit
 pandas
 matplotlib
-openai
+OpenAi
 langchain
 langchain_experimental
