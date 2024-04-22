@@ -10,7 +10,12 @@ import pandas as pd
 import re
 from io import StringIO
 import matplotlib.pyplot as plt
+from langchain.llms import OpenAI
+from langchain.chat_models import ChatOpenAI
+import langchain_experimental
 
+os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+openai.api_key = os.environ["OPENAI_API_KEY"]
 
 st.title("Transaction analysis")
 uploaded_file = st.file_uploader("Upload a CSV file for analysis", type=['csv'])
@@ -107,6 +112,18 @@ if uploaded_file is not None:
         exp_grouped.plot(kind='pie', autopct='%1.1f%%', title=f'Expenses Distribution by Category')
         plt.ylabel('')  # to hide the 'Amount' label
         st.pyplot(plt.gcf())
+        """
+        chat = ChatOpenAI(openai_api_key=openai.api_key, model_name='gpt-4', temperature=0.0)
+        agent = create_pandas_dataframe_agent(chat, df, verbose=True)
+
+        user_question = st.text_input("Ask a question about your CSV: ")
+
+        if user_question is not None and user_question != "":
+            with st.spinner(text="In progress..."):
+                st.write(agent.run(user_question))
+        """
+
+
 
     else:
         st.write("Header row could not be automatically determined.")
