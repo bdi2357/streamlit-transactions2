@@ -14,6 +14,7 @@ import openai
 from langchain.llms import OpenAI
 from langchain.chat_models import ChatOpenAI
 import langchain_experimental
+from langchain_experimental.agents.agent_toolkits import create_pandas_dataframe_agent
 os.environ["OPENAI_API_KEY"] = "AAA"
 x =  st.secrets["OPENAI_API_KEY"]
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
