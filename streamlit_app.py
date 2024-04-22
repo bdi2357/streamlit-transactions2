@@ -114,7 +114,7 @@ if uploaded_file is not None:
         exp_grouped.plot(kind='pie', autopct='%1.1f%%', title=f'Expenses Distribution by Category')
         plt.ylabel('')  # to hide the 'Amount' label
         st.pyplot(plt.gcf())
-        """
+        
         chat = ChatOpenAI(openai_api_key=openai.api_key, model_name='gpt-4', temperature=0.0)
         agent = create_pandas_dataframe_agent(chat, df, verbose=True)
 
@@ -123,7 +123,7 @@ if uploaded_file is not None:
         if user_question is not None and user_question != "":
             with st.spinner(text="In progress..."):
                 st.write(agent.run(user_question))
-        """
+        
 
 
 
