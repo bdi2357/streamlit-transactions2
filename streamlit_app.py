@@ -10,6 +10,7 @@ import pandas as pd
 import re
 from io import StringIO
 import matplotlib.pyplot as plt
+import openai
 from langchain.llms import OpenAI
 from langchain.chat_models import ChatOpenAI
 import langchain_experimental
