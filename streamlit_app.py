@@ -123,8 +123,8 @@ if uploaded_file is not None:
 
         if user_question is not None and user_question != "":
             with st.spinner(text="In progress..."):
-                #st.write(agent.run(user_question))
-                st.markdown(agent.run(user_question))
+                st.write(agent.run(user_question))
+                #st.markdown(agent.run(user_question))
         
 
 
